@@ -33,6 +33,16 @@ class StateStore:
         return self.writer.write(state, detail, fps_override=fps_override, source_value=source_value)
 
 
+def frame_sort_key(path):
+    stem = path.stem
+    return (0, int(stem)) if stem.isdigit() else (1, path.name)
+
+
+def list_frame_paths(folder):
+    folder = Path(folder)
+    return sorted(folder.glob("*.png"), key=frame_sort_key) if folder.exists() else []
+
+
 def read_avatar_state(config):
     try:
         data = json.loads(config.state_file.read_text())
@@ -63,7 +73,7 @@ def load_animation_states(config):
     animations = []
     for state in config.states:
         folder = config.asset_dir / state
-        frame_paths = sorted(folder.glob("*.png")) if folder.exists() else []
+        frame_paths = list_frame_paths(folder)
         animations.append(AnimationState(state, frame_paths, config.state_fps.get(state, 8)))
     return animations
 
@@ -73,4 +83,3 @@ def require_default_animation(config, animations):
         if animation.name == config.default_state and animation.frame_paths:
             return
     raise RuntimeError(f"No frames found for default state: {config.default_state}")
-

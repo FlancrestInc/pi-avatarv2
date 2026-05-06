@@ -11,7 +11,7 @@ from PIL import Image
 
 from pi_avatar.config import load_config
 from pi_avatar.constants import FPS, STATE_CHECK_SECONDS
-from pi_avatar.core import load_animation_states, read_avatar_state, require_default_animation
+from pi_avatar.core import list_frame_paths, load_animation_states, read_avatar_state, require_default_animation
 
 
 FBIOGET_VSCREENINFO = 0x4600
@@ -168,10 +168,7 @@ def load_frames_for_state(state, config, pygame_module):
     folder = config.asset_dir / state
     frames = []
 
-    if not folder.exists():
-        return frames
-
-    for path in sorted(folder.glob("*.png")):
+    for path in list_frame_paths(folder):
         image = pygame_module.image.load(str(path)).convert()
         frames.append(scale_pygame_frame(image, pygame_module, config.display))
 

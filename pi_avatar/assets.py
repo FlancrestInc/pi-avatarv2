@@ -132,4 +132,4 @@ def process_manifest(manifest, source_dir, output_dir, replace_states=False):
             frame = _resize_if_needed(frame, scale)
             canvas = background.copy()
             canvas.alpha_composite(frame, (x, y))
-            canvas.convert("RGB").save(state_dir / f"{index:02d}.png")
+            canvas.convert("RGB").save(state_dir / f"{index:02d}.png", optimize=True)
