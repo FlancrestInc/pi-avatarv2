@@ -4,6 +4,16 @@ avatar:
   default_state: idle
   states: [booting, idle, thinking, working, success, error, offline]
 
+display:
+  pi_enabled: true
+  width: 800
+  height: 480
+  fullscreen: true
+  framebuffer: /dev/fb0
+  background_color: "#000000"
+  show_detail: true
+  scale_mode: contain
+
 source:
   type: none
 

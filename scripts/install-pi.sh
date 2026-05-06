@@ -18,7 +18,7 @@ mkdir -p "${INSTALL_DIR}" "${CONFIG_DIR}" "${STATE_DIR}"
 
 cp -a "${ROOT_DIR}/pi_avatar" "${INSTALL_DIR}/"
 cp -a "${ROOT_DIR}/assets" "${INSTALL_DIR}/"
-cp "${ROOT_DIR}/monitor.py" "${ROOT_DIR}/renderer.py" "${ROOT_DIR}/process_assets.py" "${ROOT_DIR}/validate_config.py" "${ROOT_DIR}/make_test_assets.py" "${ROOT_DIR}/requirements.txt" "${INSTALL_DIR}/"
+cp "${ROOT_DIR}/monitor.py" "${ROOT_DIR}/renderer.py" "${ROOT_DIR}/web_preview.py" "${ROOT_DIR}/process_assets.py" "${ROOT_DIR}/validate_config.py" "${ROOT_DIR}/make_test_assets.py" "${ROOT_DIR}/requirements.txt" "${INSTALL_DIR}/"
 
 if ! python3 -m venv "${VENV_DIR}"; then
   if command -v apt-get >/dev/null 2>&1; then
