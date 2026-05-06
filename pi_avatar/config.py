@@ -48,6 +48,18 @@ class ParserConfig:
 
 
 @dataclass(frozen=True)
+class DisplayConfig:
+    pi_enabled: bool = True
+    width: int = 800
+    height: int = 480
+    fullscreen: bool = True
+    framebuffer: str = "/dev/fb0"
+    background_color: str = "#000000"
+    show_detail: bool = True
+    scale_mode: str = "contain"
+
+
+@dataclass(frozen=True)
 class Config:
     config_file: Path
     env_file: Path
@@ -55,6 +67,7 @@ class Config:
     source: SourceConfig
     parser: ParserConfig
     mode: dict
+    display: DisplayConfig
 
     @property
     def state_file(self):
@@ -98,6 +111,28 @@ def _nonnegative_float(value, field):
         raise ConfigError(f"{field} must be a number") from exc
     if parsed < 0:
         raise ConfigError(f"{field} must be non-negative")
+    return parsed
+
+
+def _bool(value, field):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("1", "true", "yes", "on"):
+            return True
+        if lowered in ("0", "false", "no", "off"):
+            return False
+    raise ConfigError(f"{field} must be a boolean")
+
+
+def _positive_int(value, field):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{field} must be an integer") from exc
+    if parsed <= 0:
+        raise ConfigError(f"{field} must be positive")
     return parsed
 
 
@@ -209,6 +244,27 @@ def _parser_config(data):
     )
 
 
+def _display_config(data):
+    raw = data.get("display", {}) or {}
+    if not isinstance(raw, dict):
+        raise ConfigError("display must be a mapping")
+
+    scale_mode = raw.get("scale_mode", "contain")
+    if scale_mode not in ("contain", "cover", "stretch"):
+        raise ConfigError("display.scale_mode must be one of: contain, cover, stretch")
+
+    return DisplayConfig(
+        pi_enabled=_bool(raw.get("pi_enabled", True), "display.pi_enabled"),
+        width=_positive_int(raw.get("width", 800), "display.width"),
+        height=_positive_int(raw.get("height", 480), "display.height"),
+        fullscreen=_bool(raw.get("fullscreen", True), "display.fullscreen"),
+        framebuffer=str(raw.get("framebuffer", "/dev/fb0") or "/dev/fb0"),
+        background_color=str(raw.get("background_color", "#000000") or "#000000"),
+        show_detail=_bool(raw.get("show_detail", True), "display.show_detail"),
+        scale_mode=scale_mode,
+    )
+
+
 def _mode_config(data, avatar):
     raw = data.get("mode", {"type": "routine", "steps": [{"state": avatar.default_state, "duration_seconds": 10}]})
     if not isinstance(raw, dict):
@@ -288,4 +344,5 @@ def load_config(env=None, path=None):
         source=_source_config(data),
         parser=_parser_config(data),
         mode=_mode_config(data, avatar),
+        display=_display_config(data),
     )

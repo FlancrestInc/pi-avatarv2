@@ -10,7 +10,7 @@ import time
 from PIL import Image
 
 from pi_avatar.config import load_config
-from pi_avatar.constants import FPS, SCREEN_HEIGHT, SCREEN_WIDTH, STATE_CHECK_SECONDS
+from pi_avatar.constants import FPS, STATE_CHECK_SECONDS
 from pi_avatar.core import load_animation_states, read_avatar_state, require_default_animation
 
 
@@ -104,6 +104,66 @@ def read_state(config=None):
     return state.state, state.detail, state.fps_override
 
 
+def _hex_color(value):
+    raw = str(value or "#000000").lstrip("#")
+    if len(raw) != 6:
+        return (0, 0, 0)
+    try:
+        return tuple(int(raw[index : index + 2], 16) for index in (0, 2, 4))
+    except ValueError:
+        return (0, 0, 0)
+
+
+def _fit_size(source_width, source_height, target_width, target_height, mode):
+    if mode == "stretch":
+        return target_width, target_height
+
+    source_ratio = source_width / source_height
+    target_ratio = target_width / target_height
+    should_fit_width = source_ratio >= target_ratio
+    if mode == "cover":
+        should_fit_width = not should_fit_width
+
+    if should_fit_width:
+        width = target_width
+        height = max(1, round(width / source_ratio))
+    else:
+        height = target_height
+        width = max(1, round(height * source_ratio))
+    return width, height
+
+
+def scale_pil_frame(image, width, height, display):
+    image = image.convert("RGB")
+    if display.scale_mode == "stretch":
+        return image.resize((width, height))
+
+    frame_width, frame_height = _fit_size(image.width, image.height, width, height, display.scale_mode)
+    resized = image.resize((frame_width, frame_height))
+    if display.scale_mode == "cover":
+        left = max(0, (frame_width - width) // 2)
+        top = max(0, (frame_height - height) // 2)
+        resized = resized.crop((left, top, left + width, top + height))
+        frame_width, frame_height = resized.size
+    canvas = Image.new("RGB", (width, height), _hex_color(display.background_color))
+    canvas.paste(resized, ((width - frame_width) // 2, (height - frame_height) // 2))
+    return canvas
+
+
+def scale_pygame_frame(image, pygame_module, display):
+    width, height = image.get_width(), image.get_height()
+    target_width, target_height = display.width, display.height
+    if display.scale_mode == "stretch":
+        return pygame_module.transform.smoothscale(image, (target_width, target_height))
+
+    frame_width, frame_height = _fit_size(width, height, target_width, target_height, display.scale_mode)
+    resized = pygame_module.transform.smoothscale(image, (frame_width, frame_height))
+    canvas = pygame_module.Surface((target_width, target_height))
+    canvas.fill(_hex_color(display.background_color))
+    canvas.blit(resized, ((target_width - frame_width) // 2, (target_height - frame_height) // 2))
+    return canvas
+
+
 def load_frames_for_state(state, config, pygame_module):
     folder = config.asset_dir / state
     frames = []
@@ -113,8 +173,7 @@ def load_frames_for_state(state, config, pygame_module):
 
     for path in sorted(folder.glob("*.png")):
         image = pygame_module.image.load(str(path)).convert()
-        image = pygame_module.transform.smoothscale(image, (SCREEN_WIDTH, SCREEN_HEIGHT))
-        frames.append(image)
+        frames.append(scale_pygame_frame(image, pygame_module, config.display))
 
     return frames
 
@@ -129,8 +188,7 @@ def load_all_animations(config, pygame_module):
         frames = []
         for path in animation_state.frame_paths:
             image = pygame_module.image.load(str(path)).convert()
-            image = pygame_module.transform.smoothscale(image, (SCREEN_WIDTH, SCREEN_HEIGHT))
-            frames.append(image)
+            frames.append(scale_pygame_frame(image, pygame_module, config.display))
         if frames:
             animations[animation_state.name] = frames
 
@@ -180,8 +238,8 @@ def _scale_channel(value, bitfield):
     return (value * ((1 << bitfield.length) - 1) // 255) << bitfield.offset
 
 
-def pack_framebuffer_image(image, info):
-    image = image.convert("RGB").resize((info.width, info.height))
+def pack_framebuffer_image(image, info, display):
+    image = scale_pil_frame(image, info.width, info.height, display)
     bytes_per_pixel = info.bits_per_pixel // 8
 
     if bytes_per_pixel not in (2, 3, 4):
@@ -218,7 +276,7 @@ def load_framebuffer_animations(config, info):
     require_default_animation(config, animation_states)
 
     for animation_state in animation_states:
-        frames = [pack_framebuffer_image(Image.open(path), info) for path in animation_state.frame_paths]
+        frames = [pack_framebuffer_image(Image.open(path), info, config.display) for path in animation_state.frame_paths]
         if frames:
             animations[animation_state.name] = frames
 
@@ -263,7 +321,8 @@ def run_pygame_renderer(config):
     pygame.init()
     pygame.display.set_caption("Pi Avatar")
 
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+    flags = pygame.FULLSCREEN if config.display.fullscreen else 0
+    screen = pygame.display.set_mode((config.display.width, config.display.height), flags)
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, 24)
 
@@ -301,9 +360,9 @@ def run_pygame_renderer(config):
 
         screen.blit(frame, (0, 0))
 
-        if detail:
+        if detail and config.display.show_detail:
             text = font.render(detail[:80], True, (230, 230, 230))
-            screen.blit(text, (16, SCREEN_HEIGHT - 30))
+            screen.blit(text, (16, config.display.height - 30))
 
         pygame.display.flip()
 
@@ -317,6 +376,9 @@ def main():
     args = parser.parse_args()
 
     config = load_config(os.environ, path=args.config)
+    if not config.display.pi_enabled:
+        print("Pi display is disabled in display.pi_enabled; exiting.", flush=True)
+        return
 
     configure_sdl_environment(os.environ)
 
@@ -327,7 +389,7 @@ def main():
             raise
 
         print(f"pygame display unavailable ({exc}); falling back to /dev/fb0", flush=True)
-        run_framebuffer_renderer(config, os.environ.get("FRAMEBUFFER", "/dev/fb0"))
+        run_framebuffer_renderer(config, os.environ.get("FRAMEBUFFER", config.display.framebuffer))
 
 
 if __name__ == "__main__":

@@ -65,16 +65,25 @@ python make_test_assets.py --output assets
 python web_preview.py --config examples/avatar.routine.yaml --host 127.0.0.1 --port 8080
 ```
 
-Open `http://127.0.0.1:8080`. The preview includes a control panel for manually selecting configured states such as `idle`, `thinking`, `working`, `success`, `error`, and `offline`. Manual selections write through the same state store used by the monitor, so the Pi renderer and web renderer can watch the same `state.json`.
+Open `http://127.0.0.1:8080` for the full-window avatar display.
+
+Open `http://127.0.0.1:8080/config` to edit the YAML-backed configuration from the browser. The configuration page includes controls for avatar paths and states, source watchers, parsers, routine/value/time modes, Pi display settings, manual state overrides, and sprite import. Manual state selections write through the same state store used by the monitor, so the Pi renderer and web renderer can watch the same `state.json`.
+
+The root display page uses the full browser window and preserves the avatar frame aspect ratio with `object-fit: contain`.
 
 ## Config Shape
 
 - `avatar`: state file, asset directory, available states, default state, optional FPS per state.
+- `display`: Pi renderer enablement, size, fullscreen mode, framebuffer path, background color, detail text, and scale mode.
 - `source`: `none`, `file`, or `url`.
 - `parser`: `raw`, `json_path`, or `regex`, with `cast: string | number | bool`.
 - `mode`: `time`, `value`, or `routine`.
 
 See `examples/` for complete configs.
+
+## Sprite Import
+
+The `/config` sprite tab can upload a background image and a spritesheet or sprite page into `source-assets/uploads`, preview parsed frames, and process them into the configured `assets/<state>/*.png` output. It supports grid parsing and explicit frame rectangles, matching the manifest shape used by `process_assets.py`.
 
 ## Watchers
 

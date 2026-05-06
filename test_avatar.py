@@ -47,6 +47,33 @@ mode:
             with self.assertRaises(ConfigError):
                 load_config(env={}, path=config_path)
 
+    def test_display_config_controls_pi_renderer_settings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+display:
+  pi_enabled: false
+  width: 1024
+  height: 600
+  fullscreen: false
+  framebuffer: /tmp/fb0
+  background_color: "#112233"
+  show_detail: false
+  scale_mode: cover
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        self.assertFalse(config.display.pi_enabled)
+        self.assertEqual(config.display.width, 1024)
+        self.assertEqual(config.display.height, 600)
+        self.assertFalse(config.display.fullscreen)
+        self.assertEqual(config.display.framebuffer, "/tmp/fb0")
+        self.assertEqual(config.display.background_color, "#112233")
+        self.assertFalse(config.display.show_detail)
+        self.assertEqual(config.display.scale_mode, "cover")
+
     def test_parse_json_path_and_numeric_cast(self):
         value = parse_value('{"cpu": {"percent": 72.5}}', load_config(env={}, path=Path("/missing")).parser)
         self.assertEqual(value, '{"cpu": {"percent": 72.5}}')
