@@ -1,0 +1,242 @@
+import json
+import os
+import tempfile
+import time
+import unittest
+from datetime import datetime
+from pathlib import Path
+from unittest import mock
+
+from pi_avatar.config import ConfigError, load_config
+from pi_avatar.modes import RoutineState, evaluate_routine, evaluate_time, evaluate_value
+from pi_avatar.parsers import ParseError, parse_value
+from pi_avatar.sources import SourceReader
+from pi_avatar.state import StateWriter
+import monitor
+import renderer
+
+
+def write_config(tmpdir, body):
+    path = Path(tmpdir) / "avatar.yaml"
+    path.write_text(body)
+    return path
+
+
+class AvatarMonitorTests(unittest.TestCase):
+    def test_load_config_defaults_to_routine(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(tmpdir, "")
+            config = load_config(env={}, path=config_path)
+
+        self.assertEqual(config.default_state, "idle")
+        self.assertEqual(config.source.type, "none")
+        self.assertEqual(config.mode["type"], "routine")
+
+    def test_load_config_rejects_unknown_value_rule_state(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+mode:
+  type: value
+  rules:
+    - state: dancing
+""",
+            )
+
+            with self.assertRaises(ConfigError):
+                load_config(env={}, path=config_path)
+
+    def test_parse_json_path_and_numeric_cast(self):
+        value = parse_value('{"cpu": {"percent": 72.5}}', load_config(env={}, path=Path("/missing")).parser)
+        self.assertEqual(value, '{"cpu": {"percent": 72.5}}')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+parser:
+  type: json_path
+  path: $.cpu.percent
+  cast: number
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        self.assertEqual(parse_value('{"cpu": {"percent": 72.5}}', config.parser), 72.5)
+
+    def test_parse_regex_bool(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+parser:
+  type: regex
+  pattern: "ready=(true|false)"
+  cast: bool
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        self.assertTrue(parse_value("ready=true", config.parser))
+        with self.assertRaises(ParseError):
+            parse_value("missing", config.parser)
+
+    def test_file_source_reads_content_and_detects_stale_mtime(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "value.txt"
+            source.write_text("42")
+            old = time.time() - 20
+            os.utime(source, (old, old))
+            config_path = write_config(
+                tmpdir,
+                f"""
+source:
+  type: file
+  path: {source}
+  stale_seconds: 5
+""",
+            )
+            config = load_config(env={}, path=config_path)
+            reader = SourceReader(config)
+            result = reader.read()
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.content, "42")
+            self.assertTrue(reader.is_stale(now=time.time()))
+
+    def test_value_mode_uses_ordered_rules_and_fps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+mode:
+  type: value
+  rules:
+    - when: {gte: 90}
+      state: error
+      fps: 12
+    - when: {gte: 60}
+      state: working
+    - state: idle
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        decision = evaluate_value(config, 95)
+        self.assertEqual(decision.state, "error")
+        self.assertEqual(decision.fps_override, 12)
+        self.assertEqual(evaluate_value(config, 75).state, "working")
+        self.assertEqual(evaluate_value(config, 10).state, "idle")
+
+    def test_time_mode_uses_nearest_matching_window(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+mode:
+  type: time
+  timezone: UTC
+  fallback: {state: idle}
+  triggers:
+    - time: "17:00"
+      windows:
+        - before_seconds: 3600
+          state: thinking
+        - before_seconds: 300
+          after_seconds: 600
+          state: success
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        self.assertEqual(evaluate_time(config, now=datetime.fromisoformat("2026-05-06T16:30:00+00:00")).state, "thinking")
+        self.assertEqual(evaluate_time(config, now=datetime.fromisoformat("2026-05-06T16:58:00+00:00")).state, "success")
+        self.assertEqual(evaluate_time(config, now=datetime.fromisoformat("2026-05-06T12:00:00+00:00")).state, "idle")
+
+    def test_routine_mode_sequence_advances_after_duration(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+mode:
+  type: routine
+  strategy: sequence
+  steps:
+    - state: idle
+      duration_seconds: 5
+    - state: thinking
+      duration_seconds: 5
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        state = RoutineState()
+        with mock.patch("pi_avatar.modes.time.time", return_value=100):
+            self.assertEqual(evaluate_routine(config, state).state, "idle")
+        with mock.patch("pi_avatar.modes.time.time", return_value=104):
+            self.assertEqual(evaluate_routine(config, state).state, "idle")
+        with mock.patch("pi_avatar.modes.time.time", return_value=106):
+            self.assertEqual(evaluate_routine(config, state).state, "thinking")
+
+    def test_monitor_writes_parsed_value_decision(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            source = Path(tmpdir) / "value.json"
+            source.write_text('{"cpu": {"percent": 65}}')
+            config_path = write_config(
+                tmpdir,
+                f"""
+avatar:
+  state_file: {state_file}
+source:
+  type: file
+  path: {source}
+parser:
+  type: json_path
+  path: $.cpu.percent
+  cast: number
+mode:
+  type: value
+  rules:
+    - when: {{gte: 60}}
+      state: working
+      fps: 14
+    - state: idle
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+            monitor.poll_once(config, SourceReader(config), StateWriter(state_file), RoutineState())
+            payload = json.loads(state_file.read_text())
+
+        self.assertEqual(payload["state"], "working")
+        self.assertEqual(payload["fps_override"], 14)
+        self.assertEqual(payload["source_value"], 65.0)
+
+    def test_renderer_reads_extended_state_and_rejects_unknown(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            config_path = write_config(tmpdir, f"avatar:\n  state_file: {state_file}\n")
+            config = load_config(env={}, path=config_path)
+
+            state_file.write_text(json.dumps({"state": "working", "detail": "busy", "fps_override": "13"}))
+            self.assertEqual(renderer.read_state(config), ("working", "busy", 13.0))
+
+            state_file.write_text(json.dumps({"state": "dancing"}))
+            self.assertEqual(renderer.read_state(config), ("idle", "Unknown state", None))
+
+    def test_installer_and_services_are_pi_only(self):
+        root = Path(__file__).resolve().parent
+        installer = (root / "scripts" / "install-pi.sh").read_text()
+        monitor_service = (root / "systemd" / "pi-avatar-monitor.service").read_text()
+
+        self.assertIn("avatar.yaml", installer)
+        self.assertIn("validate_config.py", installer)
+        self.assertIn("--config /etc/pi-avatar/avatar.yaml", monitor_service)
+        self.assertNotIn("openclaw", installer.lower())
+        self.assertNotIn("openclaw", monitor_service.lower())
+
+
+if __name__ == "__main__":
+    unittest.main()

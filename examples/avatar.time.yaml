@@ -1,0 +1,28 @@
+avatar:
+  state_file: state/state.json
+  asset_dir: assets
+  default_state: idle
+  states: [booting, idle, thinking, working, success, error, offline]
+
+source:
+  type: none
+
+mode:
+  type: time
+  timezone: America/New_York
+  fallback:
+    state: idle
+    detail: Waiting
+  triggers:
+    - time: "17:00"
+      detail: "Five o'clock in {seconds} seconds"
+      windows:
+        - before_seconds: 3600
+          state: thinking
+          detail: Almost time
+          fps: 8
+        - before_seconds: 300
+          after_seconds: 900
+          state: success
+          detail: It is time
+          fps: 12

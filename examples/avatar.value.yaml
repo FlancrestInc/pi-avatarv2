@@ -1,0 +1,33 @@
+avatar:
+  state_file: state/state.json
+  asset_dir: assets
+  default_state: idle
+  states: [booting, idle, thinking, working, success, error, offline]
+  state_fps:
+    idle: 4
+    working: 14
+
+source:
+  type: url
+  url: http://localhost:9100/metrics.json
+  poll_seconds: 2
+  timeout_seconds: 2
+
+parser:
+  type: json_path
+  path: $.cpu.percent
+  cast: number
+
+mode:
+  type: value
+  rules:
+    - when: {gte: 90}
+      state: error
+      detail: CPU high
+      fps: 12
+    - when: {gte: 60}
+      state: working
+      detail: CPU busy
+      fps: 14
+    - state: idle
+      detail: CPU normal

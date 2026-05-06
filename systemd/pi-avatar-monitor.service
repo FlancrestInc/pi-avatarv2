@@ -1,0 +1,15 @@
+[Unit]
+Description=Pi Avatar monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/pi-avatar/avatar.env
+WorkingDirectory=/opt/pi-avatar
+ExecStart=/opt/pi-avatar/.venv/bin/python /opt/pi-avatar/monitor.py --config /etc/pi-avatar/avatar.yaml
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
