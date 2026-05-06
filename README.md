@@ -67,9 +67,19 @@ python web_preview.py --config examples/avatar.routine.yaml --host 127.0.0.1 --p
 
 Open `http://127.0.0.1:8080` for the full-window avatar display.
 
-Open `http://127.0.0.1:8080/config` to edit the YAML-backed configuration from the browser. The configuration page includes controls for avatar paths and states, source watchers, parsers, routine/value/time modes, Pi display settings, manual state overrides, and sprite import. Manual state selections write through the same state store used by the monitor, so the Pi renderer and web renderer can watch the same `state.json`.
+Open `http://127.0.0.1:8080/config` to edit the YAML-backed configuration from the browser. The configuration page includes controls for avatar paths and states, source watchers, parsers, routine/value/time modes, Pi display settings, manual state overrides, and sprite import.
 
 The root display page uses the full browser window and preserves the avatar frame aspect ratio with `object-fit: contain`.
+
+## Dashboard Documentation
+
+Start with the [Dashboard Guide](docs/dashboard.md) for a tour of the web interface and recommended workflow.
+
+- [Settings](docs/dashboard-settings.md): all configurable YAML-backed controls, including avatar, source, parser, display, and mode settings.
+- [Manual State](docs/dashboard-manual-state.md): force states, add detail text, and test FPS overrides.
+- [Sprite Import](docs/dashboard-sprites.md): upload spritesheets, preview frames, and write processed assets.
+- [YAML Editor](docs/dashboard-yaml.md): edit raw YAML directly and understand validation rules.
+- [Pi Display](docs/pi-display.md): configure physical display output and keep it aligned with the web view.
 
 ## Config Shape
 
@@ -83,7 +93,7 @@ See `examples/` for complete configs.
 
 ## Sprite Import
 
-The `/config` sprite tab can upload a background image and a spritesheet or sprite page into `source-assets/uploads`, preview parsed frames, and process them into the configured `assets/<state>/*.png` output. It supports grid parsing and explicit frame rectangles, matching the manifest shape used by `process_assets.py`.
+The `/config` sprite tab can upload a background image and a spritesheet or sprite page into `source-assets/uploads`, preview parsed frames, and process them into the configured `assets/<state>/*.png` output. It supports grid parsing and explicit frame rectangles, matching the manifest shape used by `process_assets.py`. See [Sprite Import](docs/dashboard-sprites.md) for the full workflow.
 
 ## Watchers
 
