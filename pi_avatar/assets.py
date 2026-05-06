@@ -93,7 +93,7 @@ def _resize_if_needed(frame, scale):
     return frame.resize((width, height), Image.Resampling.NEAREST)
 
 
-def process_manifest(manifest, source_dir, output_dir):
+def process_manifest(manifest, source_dir, output_dir, replace_states=False):
     source_dir = Path(source_dir)
     output_dir = Path(output_dir)
     canvas_width, canvas_height = _canvas_size(manifest)
@@ -121,6 +121,9 @@ def process_manifest(manifest, source_dir, output_dir):
 
         state_dir = output_dir / state
         state_dir.mkdir(parents=True, exist_ok=True)
+        if replace_states:
+            for old_frame in state_dir.glob("*.png"):
+                old_frame.unlink()
         x, y = _position(spec)
         scale = _scale(spec)
 
