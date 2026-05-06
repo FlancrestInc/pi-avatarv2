@@ -30,16 +30,13 @@ def get_font(size):
             pass
     return ImageFont.load_default()
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate placeholder avatar frame folders")
-    parser.add_argument("--output", default="assets", help="Directory to write assets into")
-    args = parser.parse_args()
-
-    base = Path(args.output)
+def generate_default_assets(output="assets", states=None):
+    base = Path(output)
     title_font = get_font(46)
     small_font = get_font(26)
+    selected_states = STATES if states is None else {state: STATES[state] for state in states}
 
-    for state, (title, subtitle, bg) in STATES.items():
+    for state, (title, subtitle, bg) in selected_states.items():
         folder = base / state
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -99,7 +96,14 @@ def main():
 
             img.save(folder / f"{i:02d}.png")
 
-    print(f"Generated placeholder avatar assets in {base}.")
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate placeholder avatar frame folders")
+    parser.add_argument("--output", default="assets", help="Directory to write assets into")
+    args = parser.parse_args()
+
+    generate_default_assets(args.output)
+    print(f"Generated placeholder avatar assets in {Path(args.output)}.")
 
 
 if __name__ == "__main__":

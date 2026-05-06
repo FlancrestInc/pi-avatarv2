@@ -41,7 +41,8 @@ For local development, that is usually `assets/<state>/`.
 | Scale | Multiplier applied to each extracted sprite before compositing. |
 | Explicit frames JSON | Frames mode rectangle list. Each rectangle has `x`, `y`, `w`, and `h`. |
 | Preview Frames | Processes into a temporary directory and displays the output without changing assets. |
-| Process Assets | Writes frames into the configured asset directory for the selected state. |
+| Process Assets | Replaces the selected state's PNG frames in the configured asset directory. |
+| Restore Default State | Replaces the selected state's PNG frames with the generated default placeholders. |
 
 ## Grid Mode
 
@@ -94,7 +95,7 @@ The rectangles are extracted in order and saved as `00.png`, `01.png`, and so on
 5. Adjust frame dimensions, position, and scale.
 6. Click Preview Frames.
 7. Repeat until the previews look right.
-8. Click Process Assets.
+8. Click Process Assets. This removes older PNG frames for that state before writing the new set.
 9. Use [Manual State](dashboard-manual-state.md) to check the animation.
 
 ## Troubleshooting
@@ -104,3 +105,4 @@ The rectangles are extracted in order and saved as `00.png`, `01.png`, and so on
 - If the sprite is in the wrong place, adjust `Position X` and `Position Y`.
 - If the animation has missing or unexpected frames, check `Frame count` or the explicit frame list.
 - If the main display does not show the processed frames, confirm that `avatar.asset_dir` points at the same output directory.
+- If you want the generated placeholder art back for a state, select that state and click Restore Default State.

@@ -2,31 +2,49 @@ avatar:
   state_file: state/state.json
   asset_dir: assets
   default_state: idle
-  states: [booting, idle, thinking, working, success, error, offline]
-
-display:
-  pi_enabled: true
-  width: 800
-  height: 480
-  fullscreen: true
-  framebuffer: /dev/fb0
-  background_color: "#000000"
-  show_detail: true
-  scale_mode: contain
-
+  states:
+  - booting
+  - idle
+  - thinking
+  - working
+  - success
+  - error
+  - offline
+  state_fps:
+    booting: 10
+    idle: 4
+    thinking: 8
+    working: 14
+    success: 8
+    error: 10
+    offline: 4
 source:
   type: none
-
+  poll_seconds: 1
+  timeout_seconds: 2
+parser:
+  type: raw
+  group: '1'
+  cast: string
+display:
+  pi_enabled: true
+  fullscreen: true
+  show_detail: true
+  width: 800
+  height: 480
+  framebuffer: /dev/fb0
+  background_color: '#000000'
+  scale_mode: contain
 mode:
   type: routine
   strategy: weighted_random
   steps:
-    - state: idle
-      duration_seconds: 8
-      weight: 5
-    - state: thinking
-      duration_seconds: 4
-      weight: 2
-    - state: success
-      duration_seconds: 2
-      weight: 1
+  - state: idle
+    duration_seconds: 8
+    weight: 5
+  - state: thinking
+    duration_seconds: 4
+    weight: 2
+  - state: success
+    duration_seconds: 2
+    weight: 1

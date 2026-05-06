@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 import yaml
 from PIL import Image
 
+from make_test_assets import STATES as DEFAULT_ASSET_STATES, generate_default_assets
 from pi_avatar.assets import AssetManifestError, process_manifest
 from pi_avatar.config import ConfigError, load_config
 from pi_avatar.core import StateStore, load_animation_states
@@ -105,19 +106,22 @@ CONFIG_HTML = """<!doctype html>
       --warn: #e1b650;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     header { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #17191b; position: sticky; top: 0; z-index: 3; }
     h1 { margin: 0; font-size: 18px; }
     h2 { margin: 0 0 12px; font-size: 16px; }
     h3 { margin: 16px 0 8px; font-size: 14px; color: var(--muted); }
-    main { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 56px); }
+    main { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: calc(100vh - 56px); min-height: 0; }
     nav { border-right: 1px solid var(--line); background: #17191b; padding: 14px; }
     nav button { width: 100%; text-align: left; margin-bottom: 8px; }
-    section { display: none; padding: 20px; max-width: 1180px; }
+    section { display: none; padding: 20px; width: 100%; min-width: 0; overflow: auto; }
     section.active { display: block; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
     .panel { border: 1px solid var(--line); background: var(--panel); padding: 14px; border-radius: 6px; }
     label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+    .field-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .tip { display: inline-grid; place-items: center; flex: 0 0 auto; width: 17px; height: 17px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font-size: 11px; line-height: 1; cursor: help; }
     input, select, textarea, button { font: inherit; }
     input, select, textarea { width: 100%; min-height: 36px; border: 1px solid var(--line); background: #101214; color: var(--text); padding: 7px 9px; border-radius: 4px; }
     input[type="checkbox"] { width: auto; min-height: auto; }
@@ -128,17 +132,27 @@ CONFIG_HTML = """<!doctype html>
     .state-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
     .preview-shell { display: grid; place-items: center; min-height: 320px; border: 1px solid var(--line); background: #050607; overflow: hidden; }
     .preview-shell img { width: 100%; height: min(58vh, 520px); object-fit: contain; }
-    .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-top: 10px; }
+    .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(192px, 1fr)); gap: 10px; margin-top: 10px; }
     .frames img { width: 100%; aspect-ratio: 5 / 3; object-fit: contain; background: #050607; border: 1px solid var(--line); }
     .muted { color: var(--muted); font-size: 13px; }
     .error { color: var(--danger); }
     .ok { color: var(--accent); }
     .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 460px); gap: 14px; }
+    .sprite-workspace { display: grid; grid-template-columns: minmax(360px, 520px) minmax(0, 1fr); gap: 14px; height: 100%; min-height: 0; }
+    .sprite-previews { display: grid; grid-template-rows: minmax(240px, 1fr) minmax(240px, 1fr) minmax(160px, .45fr); gap: 14px; min-height: 0; }
+    .canvas-shell { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 240px; }
+    .canvas-shell h2 { margin-bottom: 8px; }
+    .canvas-stage { position: relative; min-height: 0; border: 1px solid var(--line); background: #050607; overflow: hidden; }
+    .canvas-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .sprite-output { min-height: 220px; overflow: auto; }
     @media (max-width: 860px) {
-      main, .split { grid-template-columns: 1fr; }
+      main, .split, .sprite-workspace { grid-template-columns: 1fr; height: auto; }
+      main { height: auto; min-height: calc(100vh - 56px); }
       nav { border-right: 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; overflow: auto; }
       nav button { min-width: 140px; }
       section { padding: 14px; }
+      .sprite-previews { grid-template-rows: none; }
+      .canvas-stage { min-height: 360px; }
     }
   </style>
 </head>
@@ -221,32 +235,42 @@ CONFIG_HTML = """<!doctype html>
       </div>
     </section>
     <section id="sprites">
-      <div class="split">
+      <div class="sprite-workspace">
         <div class="panel">
           <h2>Sprite Import</h2>
-          <label>Background image <input id="spriteBackground" type="file" accept="image/*"></label>
-          <label>Spritesheet or sprite page <input id="spriteSheet" type="file" accept="image/*"></label>
+          <label title="Image used as the base canvas for every generated frame. It is resized to the configured canvas width and height."><span class="field-head">Background image <span class="tip">?</span></span><input id="spriteBackground" type="file" accept="image/*"></label>
+          <label title="Source image that contains the sprite animation frames to extract."><span class="field-head">Spritesheet or sprite page <span class="tip">?</span></span><input id="spriteSheet" type="file" accept="image/*"></label>
           <div class="grid">
-            <label>State <input id="spriteState"></label>
-            <label>Mode <select id="spriteMode"><option>grid</option><option>frames</option></select></label>
-            <label>Canvas width <input id="canvasWidth" type="number" min="1" value="800"></label>
-            <label>Canvas height <input id="canvasHeight" type="number" min="1" value="480"></label>
-            <label>Frame width <input id="frameWidth" type="number" min="1" value="128"></label>
-            <label>Frame height <input id="frameHeight" type="number" min="1" value="128"></label>
-            <label>Columns <input id="columns" type="number" min="1" value="8"></label>
-            <label>Frame count <input id="frameCount" type="number" min="1" value="8"></label>
-            <label>Position X <input id="posX" type="number" value="0"></label>
-            <label>Position Y <input id="posY" type="number" value="0"></label>
-            <label>Scale <input id="spriteScale" type="number" min="0.01" step="0.1" value="1"></label>
+            <label title="Animation state that will receive the generated PNG frames."><span class="field-head">State <span class="tip">?</span></span><input id="spriteState"></label>
+            <label title="Grid extracts evenly sized cells. Frames uses the explicit JSON rectangles below."><span class="field-head">Mode <span class="tip">?</span></span><select id="spriteMode"><option>grid</option><option>frames</option></select></label>
+            <label title="Final output image width, in pixels. The background is resized to this width."><span class="field-head">Canvas width <span class="tip">?</span></span><input id="canvasWidth" type="number" min="1" value="800"></label>
+            <label title="Final output image height, in pixels. The background is resized to this height."><span class="field-head">Canvas height <span class="tip">?</span></span><input id="canvasHeight" type="number" min="1" value="480"></label>
+            <label title="Width of each extracted frame when using grid mode."><span class="field-head">Frame width <span class="tip">?</span></span><input id="frameWidth" type="number" min="1" value="128"></label>
+            <label title="Height of each extracted frame when using grid mode."><span class="field-head">Frame height <span class="tip">?</span></span><input id="frameHeight" type="number" min="1" value="128"></label>
+            <label title="Number of frame cells per row in grid mode."><span class="field-head">Columns <span class="tip">?</span></span><input id="columns" type="number" min="1" value="8"></label>
+            <label title="Number of frames to extract from the grid, starting at the upper-left cell."><span class="field-head">Frame count <span class="tip">?</span></span><input id="frameCount" type="number" min="1" value="8"></label>
+            <label title="Horizontal placement of the extracted sprite on the final canvas."><span class="field-head">Position X <span class="tip">?</span></span><input id="posX" type="number" value="0"></label>
+            <label title="Vertical placement of the extracted sprite on the final canvas."><span class="field-head">Position Y <span class="tip">?</span></span><input id="posY" type="number" value="0"></label>
+            <label title="Multiplier applied to each extracted frame before it is composited."><span class="field-head">Scale <span class="tip">?</span></span><input id="spriteScale" type="number" min="0.01" step="0.1" value="1"></label>
           </div>
-          <label>Explicit frames JSON <textarea id="explicitFrames" placeholder='[{"x":0,"y":0,"w":128,"h":128}]'></textarea></label>
-          <div class="row"><button id="previewSprites" type="button">Preview Frames</button><button id="applySprites" type="button">Process Assets</button></div>
+          <label title="Frame rectangles for frames mode. Each rectangle is x/y/w/h relative to the spritesheet top-left corner."><span class="field-head">Explicit frames JSON <span class="tip">?</span></span><textarea id="explicitFrames" placeholder='[{"x":0,"y":0,"w":128,"h":128}]'></textarea></label>
+          <div class="row"><button id="previewSprites" type="button">Preview Frames</button><button id="applySprites" type="button">Process Assets</button><button id="restoreDefaultSprites" type="button">Restore Default State</button></div>
           <p class="muted">Uploads are stored under source-assets/uploads. Processing writes PNG frames into the configured asset directory.</p>
         </div>
-        <div class="panel">
-          <h2>Preview</h2>
-          <p id="spriteStatus" class="muted"></p>
-          <div id="spriteFrames" class="frames"></div>
+        <div class="sprite-previews">
+          <div class="panel canvas-shell">
+            <h2>Spritesheet Sections</h2>
+            <div class="canvas-stage"><canvas id="sheetPreview" aria-label="Spritesheet section preview"></canvas></div>
+          </div>
+          <div class="panel canvas-shell">
+            <h2>Composited Result</h2>
+            <div class="canvas-stage"><canvas id="compositePreview" aria-label="Final composited sprite preview"></canvas></div>
+          </div>
+          <div class="panel sprite-output">
+            <h2>Extracted Frames</h2>
+            <p id="spriteStatus" class="muted"></p>
+            <div id="spriteFrames" class="frames"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -261,6 +285,8 @@ CONFIG_HTML = """<!doctype html>
     const $ = (id) => document.getElementById(id);
     let rawConfig = {}, uploadedBackground = "", uploadedSheet = "", animations = null, manualState = null;
     let frameIndex = 0, lastFrameAt = 0, lastState = null;
+    let spriteFrameIndex = 0, lastSpriteFrameAt = 0;
+    let spriteImages = { background: null, sheet: null };
 
     async function getJson(path, options) {
       const response = await fetch(path, options);
@@ -283,6 +309,169 @@ CONFIG_HTML = """<!doctype html>
     }
     function csv(value) {
       return value.split(",").map((item) => item.trim()).filter(Boolean);
+    }
+    function safeJson(value, fallback) {
+      try {
+        return parseJson(value, fallback);
+      } catch {
+        return null;
+      }
+    }
+    function loadImageFile(id, key) {
+      const file = $(id).files[0];
+      spriteImages[key] = null;
+      if (!file) {
+        drawSpritePreviews();
+        return;
+      }
+      const image = new Image();
+      image.onload = () => {
+        spriteImages[key] = image;
+        URL.revokeObjectURL(image.src);
+        drawSpritePreviews();
+      };
+      image.onerror = () => {
+        spriteImages[key] = null;
+        $("spriteStatus").innerHTML = `<span class="error">Could not load ${file.name}</span>`;
+        drawSpritePreviews();
+      };
+      image.src = URL.createObjectURL(file);
+    }
+    function spriteSettings() {
+      return {
+        canvasWidth: num("canvasWidth") || 800,
+        canvasHeight: num("canvasHeight") || 480,
+        frameWidth: num("frameWidth") || 1,
+        frameHeight: num("frameHeight") || 1,
+        columns: num("columns") || 1,
+        frameCount: num("frameCount") || 1,
+        x: num("posX") || 0,
+        y: num("posY") || 0,
+        scale: num("spriteScale") || 1,
+        mode: $("spriteMode").value
+      };
+    }
+    function frameRects() {
+      const settings = spriteSettings();
+      if (settings.mode === "frames") {
+        const frames = safeJson($("explicitFrames").value, []);
+        if (!Array.isArray(frames)) return [];
+        return frames.map((frame) => ({
+          x: Number(frame.x) || 0,
+          y: Number(frame.y) || 0,
+          w: Number(frame.w) || 0,
+          h: Number(frame.h) || 0
+        }));
+      }
+      return Array.from({ length: settings.frameCount }, (_, index) => ({
+        x: (index % settings.columns) * settings.frameWidth,
+        y: Math.floor(index / settings.columns) * settings.frameHeight,
+        w: settings.frameWidth,
+        h: settings.frameHeight
+      }));
+    }
+    function validRect(rect, image) {
+      return rect.w > 0 && rect.h > 0 && rect.x >= 0 && rect.y >= 0 && (!image || rect.x + rect.w <= image.width && rect.y + rect.h <= image.height);
+    }
+    function fitRect(sourceWidth, sourceHeight, targetWidth, targetHeight) {
+      sourceWidth = Math.max(1, sourceWidth);
+      sourceHeight = Math.max(1, sourceHeight);
+      const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+      const width = sourceWidth * scale;
+      const height = sourceHeight * scale;
+      return { x: (targetWidth - width) / 2, y: (targetHeight - height) / 2, width, height, scale };
+    }
+    function canvasContext(id) {
+      const canvas = $(id);
+      const bounds = canvas.parentElement.getBoundingClientRect();
+      const width = Math.max(1, Math.floor(bounds.width));
+      const height = Math.max(1, Math.floor(bounds.height));
+      const ratio = window.devicePixelRatio || 1;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
+        canvas.width = Math.floor(width * ratio);
+        canvas.height = Math.floor(height * ratio);
+      }
+      const context = canvas.getContext("2d");
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.imageSmoothingEnabled = false;
+      return { context, width, height };
+    }
+    function drawPlaceholder(context, width, height, text) {
+      context.fillStyle = "#050607";
+      context.fillRect(0, 0, width, height);
+      context.strokeStyle = "#383e42";
+      context.strokeRect(0.5, 0.5, width - 1, height - 1);
+      context.fillStyle = "#b7b0a4";
+      context.font = "13px ui-sans-serif, system-ui, sans-serif";
+      context.textAlign = "center";
+      context.fillText(text, width / 2, height / 2);
+    }
+    function drawSheetPreview() {
+      const { context, width, height } = canvasContext("sheetPreview");
+      const sheet = spriteImages.sheet;
+      if (!sheet) {
+        drawPlaceholder(context, width, height, "Choose a spritesheet to preview sections");
+        return;
+      }
+      context.fillStyle = "#050607";
+      context.fillRect(0, 0, width, height);
+      const fit = fitRect(sheet.width, sheet.height, Math.max(1, width - 20), Math.max(1, height - 20));
+      context.drawImage(sheet, fit.x + 10, fit.y + 10, fit.width, fit.height);
+      const rects = frameRects();
+      rects.forEach((rect, index) => {
+        const ok = validRect(rect, sheet);
+        const x = fit.x + 10 + rect.x * fit.scale;
+        const y = fit.y + 10 + rect.y * fit.scale;
+        const w = rect.w * fit.scale;
+        const h = rect.h * fit.scale;
+        context.fillStyle = ok ? "rgba(69, 195, 157, 0.12)" : "rgba(241, 109, 109, 0.18)";
+        context.strokeStyle = ok ? "#45c39d" : "#f16d6d";
+        context.lineWidth = 2;
+        context.fillRect(x, y, w, h);
+        context.strokeRect(x, y, w, h);
+        context.fillStyle = ok ? "#45c39d" : "#f16d6d";
+        context.font = "12px ui-sans-serif, system-ui, sans-serif";
+        context.fillText(String(index + 1), x + 5, y + 14);
+      });
+    }
+    function drawCompositePreview() {
+      const { context, width, height } = canvasContext("compositePreview");
+      const settings = spriteSettings();
+      const rects = frameRects();
+      const currentRect = rects[spriteFrameIndex % Math.max(rects.length, 1)] || { x: 0, y: 0, w: settings.frameWidth, h: settings.frameHeight };
+      const output = fitRect(settings.canvasWidth, settings.canvasHeight, Math.max(1, width - 20), Math.max(1, height - 20));
+      const ox = output.x + 10;
+      const oy = output.y + 10;
+      context.fillStyle = "#050607";
+      context.fillRect(0, 0, width, height);
+      context.save();
+      context.translate(ox, oy);
+      context.scale(output.scale, output.scale);
+      if (spriteImages.background) {
+        context.drawImage(spriteImages.background, 0, 0, settings.canvasWidth, settings.canvasHeight);
+      } else {
+        context.fillStyle = "#101214";
+        context.fillRect(0, 0, settings.canvasWidth, settings.canvasHeight);
+      }
+      const drawWidth = Math.max(1, currentRect.w * settings.scale);
+      const drawHeight = Math.max(1, currentRect.h * settings.scale);
+      const canDrawSprite = spriteImages.sheet && validRect(currentRect, spriteImages.sheet);
+      if (canDrawSprite) {
+        context.drawImage(spriteImages.sheet, currentRect.x, currentRect.y, currentRect.w, currentRect.h, settings.x, settings.y, drawWidth, drawHeight);
+      }
+      context.strokeStyle = canDrawSprite ? "#45c39d" : "#e1b650";
+      context.lineWidth = Math.max(1, 2 / output.scale);
+      context.strokeRect(settings.x, settings.y, drawWidth, drawHeight);
+      context.restore();
+      context.strokeStyle = "#383e42";
+      context.lineWidth = 1;
+      context.strokeRect(ox + 0.5, oy + 0.5, output.width - 1, output.height - 1);
+    }
+    function drawSpritePreviews() {
+      drawSheetPreview();
+      drawCompositePreview();
     }
     function fillDefaults() {
       rawConfig.avatar ??= {};
@@ -395,6 +584,11 @@ CONFIG_HTML = """<!doctype html>
           lastFrameAt = timestamp;
         }
       }
+      if (timestamp - lastSpriteFrameAt >= 125) {
+        spriteFrameIndex += 1;
+        lastSpriteFrameAt = timestamp;
+        drawCompositePreview();
+      }
       requestAnimationFrame(tick);
     }
     async function upload(id) {
@@ -429,6 +623,15 @@ CONFIG_HTML = """<!doctype html>
       $("spriteFrames").innerHTML = payload.frames.map((src) => `<img src="${src}" alt="Sprite frame preview">`).join("");
       animations = await getJson("/api/animations");
     }
+    async function restoreDefaultSprites() {
+      const state = $("spriteState").value;
+      if (!state || !confirm(`Restore default assets for ${state}? This replaces the current PNG frames for that state.`)) return;
+      $("spriteStatus").textContent = "Restoring defaults...";
+      const payload = await getJson("/api/sprites/restore-default", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({state}) });
+      $("spriteStatus").textContent = `Restored ${payload.frames.length} default frames for ${state}`;
+      $("spriteFrames").innerHTML = payload.frames.map((src) => `<img src="${src}?t=${Date.now()}" alt="Default sprite frame">`).join("");
+      animations = await getJson("/api/animations");
+    }
     $("save").onclick = async () => {
       const fromRaw = document.querySelector("section.active")?.id === "raw";
       const body = fromRaw ? { yaml: $("rawYaml").value } : { config: collect() };
@@ -441,18 +644,25 @@ CONFIG_HTML = """<!doctype html>
     };
     $("previewSprites").onclick = () => previewSprites(false).catch((error) => $("spriteStatus").innerHTML = `<span class="error">${error.message || error}</span>`);
     $("applySprites").onclick = () => previewSprites(true).catch((error) => $("spriteStatus").innerHTML = `<span class="error">${error.message || error}</span>`);
-    $("spriteBackground").onchange = () => { uploadedBackground = ""; };
-    $("spriteSheet").onchange = () => { uploadedSheet = ""; };
+    $("restoreDefaultSprites").onclick = () => restoreDefaultSprites().catch((error) => $("spriteStatus").innerHTML = `<span class="error">${error.message || error}</span>`);
+    $("spriteBackground").onchange = () => { uploadedBackground = ""; loadImageFile("spriteBackground", "background"); };
+    $("spriteSheet").onchange = () => { uploadedSheet = ""; loadImageFile("spriteSheet", "sheet"); };
+    for (const id of ["spriteMode", "canvasWidth", "canvasHeight", "frameWidth", "frameHeight", "columns", "frameCount", "posX", "posY", "spriteScale", "explicitFrames"]) {
+      $(id).addEventListener("input", drawSpritePreviews);
+      $(id).addEventListener("change", drawSpritePreviews);
+    }
+    new ResizeObserver(drawSpritePreviews).observe($("sprites"));
     $("tabs").onclick = (event) => {
       if (!event.target.dataset.tab) return;
       for (const button of $("tabs").querySelectorAll("button")) button.classList.toggle("active", button === event.target);
       for (const section of document.querySelectorAll("section")) section.classList.toggle("active", section.id === event.target.dataset.tab);
+      if (event.target.dataset.tab === "sprites") requestAnimationFrame(drawSpritePreviews);
     };
     $("avatar.states").onchange = () => {
       const states = csv($("avatar.states").value);
       $("avatar.default_state").innerHTML = states.map((state) => `<option>${state}</option>`).join("");
     };
-    loadAll().then(() => requestAnimationFrame(tick)).catch((error) => alert(error.message || error));
+    loadAll().then(() => { drawSpritePreviews(); requestAnimationFrame(tick); }).catch((error) => alert(error.message || error));
     setInterval(() => refreshStateControls().catch(console.error), 1000);
   </script>
 </body>
@@ -587,6 +797,8 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
             return self._post_sprite_preview(process=False)
         if path == "/api/sprites/process":
             return self._post_sprite_preview(process=True)
+        if path == "/api/sprites/restore-default":
+            return self._post_sprite_restore_default()
         self.send_error(404, "Not found")
 
     def do_PUT(self):
@@ -647,7 +859,7 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
             payload = self._read_json()
             manifest = _sprite_manifest(payload)
             if process:
-                process_manifest(manifest, "source-assets", self.config.asset_dir)
+                process_manifest(manifest, "source-assets", self.config.asset_dir, replace_states=True)
                 state = next(iter(manifest["states"]))
                 frames = [f"/assets/{state}/{path.name}" for path in sorted((self.config.asset_dir / state).glob("*.png"))]
                 return self._send_json({"frames": frames, "output": str(self.config.asset_dir / state)})
@@ -657,6 +869,25 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
                 frames = [_frame_data_url(Image.open(path)) for path in sorted((Path(tmpdir) / state).glob("*.png"))]
                 return self._send_json({"frames": frames, "output": tmpdir})
         except (AssetManifestError, OSError, ValueError, json.JSONDecodeError) as exc:
+            return self._send_json({"error": str(exc)}, status=400)
+
+    def _post_sprite_restore_default(self):
+        try:
+            payload = self._read_json()
+            state = payload.get("state")
+            if state not in self.config.states:
+                raise ValueError("Unknown state")
+            if state not in DEFAULT_ASSET_STATES:
+                raise ValueError(f"No default assets are available for state: {state}")
+
+            state_dir = self.config.asset_dir / state
+            state_dir.mkdir(parents=True, exist_ok=True)
+            for old_frame in state_dir.glob("*.png"):
+                old_frame.unlink()
+            generate_default_assets(self.config.asset_dir, states=[state])
+            frames = [f"/assets/{state}/{path.name}" for path in sorted(state_dir.glob("*.png"))]
+            return self._send_json({"frames": frames, "output": str(state_dir)})
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             return self._send_json({"error": str(exc)}, status=400)
 
     def log_message(self, format, *args):
