@@ -16,7 +16,7 @@ from PIL import Image
 from make_test_assets import STATES as DEFAULT_ASSET_STATES, generate_default_assets
 from pi_avatar.assets import AssetManifestError, process_manifest
 from pi_avatar.config import ConfigError, load_config
-from pi_avatar.core import StateStore, load_animation_states
+from pi_avatar.core import StateStore, list_frame_paths, load_animation_states
 
 
 DISPLAY_HTML = """<!doctype html>
@@ -43,7 +43,8 @@ DISPLAY_HTML = """<!doctype html>
   <script>
     const frame = document.getElementById("frame");
     const statusEl = document.getElementById("status");
-    let config = null, currentState = null, frameIndex = 0, lastState = null, lastFrameAt = 0;
+    let config = null, currentState = null, frameIndex = 0, lastState = null, lastFrameAt = 0, animationKey = "";
+    const preloadedFrames = new Map();
 
     async function getJson(path, options) {
       const response = await fetch(path, options);
@@ -52,29 +53,67 @@ DISPLAY_HTML = """<!doctype html>
     }
 
     async function loadConfig() {
-      config = await getJson("/api/animations");
+      const nextConfig = await getJson("/api/animations");
+      const nextKey = JSON.stringify(nextConfig.animations || {});
+      if (animationKey && nextKey !== animationKey) {
+        frameIndex = 0;
+        lastFrameAt = 0;
+      }
+      config = nextConfig;
+      animationKey = nextKey;
       document.body.style.background = config.display?.background_color || "#050607";
       frame.style.objectFit = config.display?.scale_mode === "cover" ? "cover" : config.display?.scale_mode === "stretch" ? "fill" : "contain";
+      preloadAnimationFrames();
+    }
+
+    function preloadAnimationFrames() {
+      const states = [currentState?.state, config.default_state].filter(Boolean);
+      for (const state of [...new Set(states)]) {
+        const frames = config.animations?.[state] || [];
+        for (const src of frames) preloadFrame(src);
+      }
+    }
+
+    function preloadFrame(src) {
+      if (preloadedFrames.has(src)) return;
+      const image = new Image();
+      image.src = src;
+      preloadedFrames.set(src, image);
+    }
+
+    function preloadNextFrames(animation) {
+      for (let offset = 0; offset < Math.min(animation.length, 3); offset += 1) {
+        preloadFrame(animation[(frameIndex + offset) % animation.length]);
+      }
     }
 
     async function loadState() {
       currentState = await getJson("/api/state");
       statusEl.textContent = currentState.detail || "";
       if (lastState !== currentState.state) { frameIndex = 0; lastState = currentState.state; }
+      await loadConfig();
     }
 
     function tick(timestamp) {
       if (config && currentState) {
         const animation = config.animations[currentState.state] || config.animations[config.default_state] || [];
         const fps = currentState.fps_override || config.state_fps[currentState.state] || 8;
+        if (animation.length) preloadNextFrames(animation);
         if (animation.length && timestamp - lastFrameAt >= 1000 / fps) {
-          frame.src = animation[frameIndex % animation.length] + `?t=${Date.now()}`;
+          frame.src = animation[frameIndex % animation.length];
           frameIndex += 1;
           lastFrameAt = timestamp;
         }
       }
       requestAnimationFrame(tick);
     }
+
+    frame.onerror = () => {
+      loadConfig().then(() => {
+        frameIndex = 0;
+        lastFrameAt = 0;
+      }).catch(console.error);
+    };
 
     loadConfig().then(loadState).then(() => {
       setInterval(() => loadState().catch(console.error), 1000);
@@ -126,6 +165,10 @@ CONFIG_HTML = """<!doctype html>
     input, select, textarea { width: 100%; min-height: 36px; border: 1px solid var(--line); background: #101214; color: var(--text); padding: 7px 9px; border-radius: 4px; }
     input[type="checkbox"] { width: auto; min-height: auto; }
     textarea { min-height: 116px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    details.example { margin: -2px 0 12px; border: 1px solid var(--line); background: #141719; border-radius: 4px; }
+    details.example summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 8px 10px; }
+    details.example pre { margin: 0; padding: 0 10px 10px; overflow: auto; color: var(--text); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+    .label-tip { display: inline-grid; place-items: center; width: 17px; height: 17px; margin-left: 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font-size: 11px; line-height: 1; cursor: help; }
     button { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); min-height: 36px; padding: 7px 10px; border-radius: 4px; cursor: pointer; }
     button:hover, button.active { border-color: var(--accent); color: white; background: #243d35; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -177,6 +220,13 @@ CONFIG_HTML = """<!doctype html>
           <label>Default state <select id="avatar.default_state"></select></label>
           <label>States <input id="avatar.states" placeholder="idle,thinking,working"></label>
           <label>State FPS <textarea id="avatar.state_fps"></textarea></label>
+          <details class="example"><summary>Example State FPS</summary><pre>{
+  "idle": 4,
+  "thinking": 8,
+  "working": 14,
+  "success": 8,
+  "error": 10
+}</pre></details>
         </div>
         <div class="panel">
           <h2>Source</h2>
@@ -215,10 +265,49 @@ CONFIG_HTML = """<!doctype html>
           <label>Timezone <input id="mode.timezone" placeholder="UTC or America/New_York"></label>
         </div>
         <div class="grid">
-          <label>Routine steps <textarea id="mode.steps"></textarea></label>
-          <label>Value rules <textarea id="mode.rules"></textarea></label>
-          <label>Time triggers <textarea id="mode.triggers"></textarea></label>
-          <label>Time fallback <textarea id="mode.fallback"></textarea></label>
+          <div>
+            <label>Routine steps <textarea id="mode.steps"></textarea></label>
+            <details class="example"><summary>Example Routine Steps</summary><pre>[
+  {"state": "idle", "duration_seconds": 8, "detail": "Resting"},
+  {"state": "thinking", "duration_seconds": 4, "detail": "Checking"},
+  {"state": "working", "duration_seconds": 12, "fps": 14}
+]</pre></details>
+          </div>
+          <div>
+            <label>Value rules <textarea id="mode.rules"></textarea></label>
+            <details class="example"><summary>Example Value Rules</summary><pre>[
+  {"when": {"gte": 90}, "state": "error", "detail": "CPU high", "fps": 12},
+  {"when": {"gte": 60}, "state": "working", "detail": "CPU busy"},
+  {"when": {"eq": "ok"}, "state": "success"},
+  {"state": "idle", "detail": "Normal"}
+]</pre></details>
+          </div>
+          <div>
+            <label>Time triggers <textarea id="mode.triggers"></textarea></label>
+            <details class="example"><summary>Example Time Triggers</summary><pre>[
+  {
+    "time": "09:00",
+    "detail": "Morning focus",
+    "windows": [
+      {"before_seconds": 300, "after_seconds": 1800, "state": "working", "fps": 12}
+    ]
+  },
+  {
+    "time": "17:30",
+    "windows": [
+      {"after_seconds": 900, "state": "success", "detail": "Wrap up"}
+    ]
+  }
+]</pre></details>
+          </div>
+          <div>
+            <label>Time fallback <textarea id="mode.fallback"></textarea></label>
+            <details class="example"><summary>Example Time Fallback</summary><pre>{
+  "state": "idle",
+  "detail": "No scheduled trigger",
+  "fps": 4
+}</pre></details>
+          </div>
         </div>
       </div>
     </section>
@@ -309,6 +398,55 @@ CONFIG_HTML = """<!doctype html>
     }
     function csv(value) {
       return value.split(",").map((item) => item.trim()).filter(Boolean);
+    }
+    function installSettingTooltips() {
+      const tooltips = {
+        "avatar.state_file": "Path to the shared JSON state file. The monitor writes it and renderers read it to decide which animation state to show.",
+        "avatar.asset_dir": "Folder containing one subfolder per state, such as assets/idle/*.png. Sprite Import writes processed frames here.",
+        "avatar.default_state": "Fallback animation state used when the current state is unavailable or a selected state has no frames.",
+        "avatar.states": "Comma-separated list of valid state names. Each state should have a matching asset folder and can be referenced by modes.",
+        "avatar.state_fps": "JSON object mapping state names to animation speed in frames per second. Leave a state out to use the default speed.",
+        "source.type": "Select where live input comes from. Use none for routine/time-only avatars, file for a local file, or url for an HTTP endpoint.",
+        "source.path": "Local file path to poll when Source Type is file. The parser receives the file contents.",
+        "source.url": "HTTP URL to poll when Source Type is url. The parser receives the response body.",
+        "source.poll_seconds": "How often to read the file or URL, in seconds. Lower values react faster but do more work.",
+        "source.timeout_seconds": "Maximum time to wait for a URL response before treating that poll as failed.",
+        "source.stale_seconds": "Optional age limit for source data. If no fresh value arrives within this time, the state can fall back to offline behavior.",
+        "parser.type": "How to convert source input into a value. raw uses the whole input, json_path extracts from JSON, and regex extracts with a pattern.",
+        "parser.path": "JSON path used when Parser Type is json_path, such as $.status or $.metrics.cpu.",
+        "parser.pattern": "Regular expression used when Parser Type is regex. Put the value you want to extract in a capture group.",
+        "parser.group": "Regex capture group to use. Use 1 for the first parenthesized group.",
+        "parser.cast": "Type conversion for the parsed value before mode rules evaluate it.",
+        "display.pi_enabled": "Allows renderer.py to open the Raspberry Pi display. Disable this when using only the browser display.",
+        "display.fullscreen": "Opens the Pi renderer fullscreen when enabled.",
+        "display.show_detail": "Shows state detail text on the Pi display when detail text is available.",
+        "display.width": "Target Pi display width in pixels. Match your physical display or generated frame size.",
+        "display.height": "Target Pi display height in pixels. Match your physical display or generated frame size.",
+        "display.framebuffer": "Framebuffer device used by the Pi fallback renderer, usually /dev/fb0.",
+        "display.background_color": "Color shown behind letterboxed frames and as the display background.",
+        "display.scale_mode": "How frames fit the display: contain shows the whole image, cover fills with cropping, stretch fills with distortion.",
+        "mode.type": "Select the state-decision mode. routine cycles steps, value maps parsed source values, and time uses scheduled triggers.",
+        "mode.strategy": "Routine step selection behavior. sequence follows the list, random chooses any step, weighted_random respects weights.",
+        "mode.timezone": "Timezone for time mode, such as UTC or America/New_York. Leave blank to use the system default.",
+        "mode.steps": "JSON array of routine steps. Each step can set state, duration_seconds, detail, fps, and optional weight.",
+        "mode.rules": "JSON array of value rules checked in order. Each rule can include a when condition, state, detail, and fps.",
+        "mode.triggers": "JSON array of time triggers. Each trigger has a time and windows with before_seconds or after_seconds plus state/detail/fps.",
+        "mode.fallback": "JSON object used by time mode when no trigger is active. Usually contains state, detail, and optional fps."
+      };
+      for (const [id, text] of Object.entries(tooltips)) {
+        const control = $(id);
+        const label = control?.closest("label");
+        if (!control || !label) continue;
+        control.title = text;
+        label.title = text;
+        if (label.querySelector(".label-tip") || label.querySelector(".tip")) continue;
+        const tip = document.createElement("span");
+        tip.className = "label-tip";
+        tip.title = text;
+        tip.textContent = "?";
+        const input = label.querySelector("input, select, textarea");
+        label.insertBefore(tip, input || null);
+      }
     }
     function safeJson(value, fallback) {
       try {
@@ -579,7 +717,7 @@ CONFIG_HTML = """<!doctype html>
         const frames = animations.animations[manualState.state] || animations.animations[animations.default_state] || [];
         const fps = manualState.fps_override || animations.state_fps[manualState.state] || 8;
         if (frames.length && timestamp - lastFrameAt >= 1000 / fps) {
-          $("manualPreview").src = frames[frameIndex % frames.length] + `?t=${Date.now()}`;
+          $("manualPreview").src = frames[frameIndex % frames.length];
           frameIndex += 1;
           lastFrameAt = timestamp;
         }
@@ -629,7 +767,7 @@ CONFIG_HTML = """<!doctype html>
       $("spriteStatus").textContent = "Restoring defaults...";
       const payload = await getJson("/api/sprites/restore-default", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({state}) });
       $("spriteStatus").textContent = `Restored ${payload.frames.length} default frames for ${state}`;
-      $("spriteFrames").innerHTML = payload.frames.map((src) => `<img src="${src}?t=${Date.now()}" alt="Default sprite frame">`).join("");
+      $("spriteFrames").innerHTML = payload.frames.map((src) => `<img src="${src}" alt="Default sprite frame">`).join("");
       animations = await getJson("/api/animations");
     }
     $("save").onclick = async () => {
@@ -662,6 +800,7 @@ CONFIG_HTML = """<!doctype html>
       const states = csv($("avatar.states").value);
       $("avatar.default_state").innerHTML = states.map((state) => `<option>${state}</option>`).join("");
     };
+    installSettingTooltips();
     loadAll().then(() => { drawSpritePreviews(); requestAnimationFrame(tick); }).catch((error) => alert(error.message || error));
     setInterval(() => refreshStateControls().catch(console.error), 1000);
   </script>
@@ -732,6 +871,15 @@ def _frame_data_url(image):
     image.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def _state_asset_version(frame_paths):
+    stats = [path.stat() for path in frame_paths]
+    if not stats:
+        return "empty"
+    latest = max(stat.st_mtime_ns for stat in stats)
+    total_size = sum(stat.st_size for stat in stats)
+    return f"{len(stats)}-{latest:x}-{total_size:x}"
 
 
 def _sprite_manifest(payload):
@@ -861,12 +1009,12 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
             if process:
                 process_manifest(manifest, "source-assets", self.config.asset_dir, replace_states=True)
                 state = next(iter(manifest["states"]))
-                frames = [f"/assets/{state}/{path.name}" for path in sorted((self.config.asset_dir / state).glob("*.png"))]
+                frames = self._asset_urls(state)
                 return self._send_json({"frames": frames, "output": str(self.config.asset_dir / state)})
             with tempfile.TemporaryDirectory() as tmpdir:
                 process_manifest(manifest, "source-assets", tmpdir)
                 state = next(iter(manifest["states"]))
-                frames = [_frame_data_url(Image.open(path)) for path in sorted((Path(tmpdir) / state).glob("*.png"))]
+                frames = [_frame_data_url(Image.open(path)) for path in list_frame_paths(Path(tmpdir) / state)]
                 return self._send_json({"frames": frames, "output": tmpdir})
         except (AssetManifestError, OSError, ValueError, json.JSONDecodeError) as exc:
             return self._send_json({"error": str(exc)}, status=400)
@@ -885,7 +1033,7 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
             for old_frame in state_dir.glob("*.png"):
                 old_frame.unlink()
             generate_default_assets(self.config.asset_dir, states=[state])
-            frames = [f"/assets/{state}/{path.name}" for path in sorted(state_dir.glob("*.png"))]
+            frames = self._asset_urls(state)
             return self._send_json({"frames": frames, "output": str(state_dir)})
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             return self._send_json({"error": str(exc)}, status=400)
@@ -907,7 +1055,7 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
     def _animation_payload(self):
         animations = {}
         for animation in load_animation_states(self.config):
-            animations[animation.name] = [f"/assets/{animation.name}/{path.name}" for path in animation.frame_paths]
+            animations[animation.name] = self._asset_urls(animation.name, animation.frame_paths)
         return {
             "states": self.config.states,
             "default_state": self.config.default_state,
@@ -915,6 +1063,11 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
             "animations": animations,
             "display": asdict(self.config.display),
         }
+
+    def _asset_urls(self, state, frame_paths=None):
+        frame_paths = list_frame_paths(self.config.asset_dir / state) if frame_paths is None else frame_paths
+        version = _state_asset_version(frame_paths)
+        return [f"/assets/{state}/{path.name}?v={version}" for path in frame_paths]
 
     def _send_asset(self, relative):
         parts = [part for part in unquote(relative).split("/") if part]
@@ -930,14 +1083,31 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
         except ValueError:
             return self.send_error(404, "Asset not found")
         if not path.exists():
-            return self.send_error(404, "Asset not found")
+            fallback = self._fallback_animation_frame(asset_root, state, filename)
+            if fallback:
+                path = fallback
+            else:
+                return self.send_error(404, "Asset not found")
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(path.stat().st_size))
+        if "v=" in urlparse(self.path).query:
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         with path.open("rb") as file:
             self.wfile.write(file.read())
+
+    def _fallback_animation_frame(self, asset_root, state, filename):
+        stem = Path(filename).stem
+        if Path(filename).suffix.lower() != ".png" or not stem.isdigit():
+            return None
+        frames = list_frame_paths(asset_root / state)
+        if not frames:
+            return None
+        return frames[int(stem) % len(frames)]
 
     def _send_json(self, payload, status=200):
         raw = json.dumps(payload).encode("utf-8")

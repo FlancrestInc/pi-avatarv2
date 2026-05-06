@@ -35,7 +35,7 @@ For local development, that is usually `assets/<state>/`.
 | Frame width | Grid mode frame width. |
 | Frame height | Grid mode frame height. |
 | Columns | Grid mode number of columns in the spritesheet. |
-| Frame count | Grid mode number of frames to extract. |
+| Frame count | Grid mode number of frames to extract. This can be any positive count that fits within the spritesheet, including long animations. |
 | Position X | X coordinate where the extracted sprite is placed on the background canvas. |
 | Position Y | Y coordinate where the extracted sprite is placed on the background canvas. |
 | Scale | Multiplier applied to each extracted sprite before compositing. |
@@ -56,6 +56,7 @@ Grid extraction uses:
 - `frame_count`
 
 For frame index `0`, extraction starts at `x=0`, `y=0`. For later frames, the dashboard calculates the row and column from the index.
+The renderer loops over the frames that exist for each state, so a state can have 4 frames, 30 frames, or another length.
 
 Example:
 
