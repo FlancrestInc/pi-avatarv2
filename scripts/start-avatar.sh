@@ -8,6 +8,10 @@ PORT="${PORT:-}"
 LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
 PID_DIR="${PID_DIR:-${ROOT_DIR}/run}"
 SERVICE_FILE="/etc/systemd/system/pi-avatar-startup.service"
+MONITOR_SERVICE_FILE="/etc/systemd/system/pi-avatar-monitor.service"
+WEB_SERVICE_FILE="/etc/systemd/system/pi-avatar-web.service"
+RENDERER_SERVICE_FILE="/etc/systemd/system/pi-avatar-renderer.service"
+PI_AVATAR_SERVICES="pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service"
 PYTHON_BIN="${PYTHON_BIN:-${ROOT_DIR}/.venv/bin/python}"
 
 if [ ! -x "${PYTHON_BIN}" ]; then
@@ -41,20 +45,16 @@ install_service() {
     exit 1
   fi
 
-  cat > "${SERVICE_FILE}" <<EOF
+  cat > "${MONITOR_SERVICE_FILE}" <<EOF
 [Unit]
-Description=Pi Avatar startup
-After=network-online.target local-fs.target
+Description=Pi Avatar monitor
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=${ROOT_DIR}
-Environment=CONFIG_FILE=${CONFIG_FILE}
-Environment=HOST=${HOST}
-Environment=PORT=${PORT}
-Environment=PYTHON_BIN=${PYTHON_BIN}
-ExecStart=/usr/bin/env bash ${ROOT_DIR}/scripts/start-avatar.sh --foreground --config ${CONFIG_FILE}
+ExecStart=${PYTHON_BIN} ${ROOT_DIR}/monitor.py --config ${CONFIG_FILE}
 Restart=always
 RestartSec=2
 
@@ -62,9 +62,66 @@ RestartSec=2
 WantedBy=multi-user.target
 EOF
 
+  cat > "${WEB_SERVICE_FILE}" <<EOF
+[Unit]
+Description=Pi Avatar web renderer
+After=network-online.target pi-avatar-monitor.service
+Wants=network-online.target pi-avatar-monitor.service
+
+[Service]
+Type=simple
+WorkingDirectory=${ROOT_DIR}
+ExecStart=${PYTHON_BIN} ${ROOT_DIR}/web_preview.py --config ${CONFIG_FILE}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "${RENDERER_SERVICE_FILE}" <<EOF
+[Unit]
+Description=Pi Avatar renderer
+After=local-fs.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/pi-avatar
+Environment=SDL_VIDEODRIVER=kmsdrm
+WorkingDirectory=${ROOT_DIR}
+ExecStartPre=/bin/sh -c '/usr/bin/setterm --cursor off --blank 0 --powerdown 0 > /dev/tty1'
+ExecStart=${PYTHON_BIN} ${ROOT_DIR}/renderer.py --config ${CONFIG_FILE}
+ExecStopPost=/bin/sh -c '/usr/bin/setterm --cursor on > /dev/tty1'
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=pi-avatar
+RuntimeDirectoryMode=0700
+StandardInput=tty
+TTYPath=/dev/tty1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > "${SERVICE_FILE}" <<EOF
+[Unit]
+Description=Pi Avatar startup
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/systemctl start pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service
+ExecStop=/usr/bin/systemctl stop pi-avatar-renderer.service pi-avatar-web.service pi-avatar-monitor.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
   systemctl daemon-reload >/dev/null
   systemctl enable pi-avatar-startup.service >/dev/null
-  systemctl enable pi-avatar-monitor.service pi-avatar-renderer.service pi-avatar-web.service >/dev/null 2>&1 || true
+  systemctl enable ${PI_AVATAR_SERVICES} >/dev/null
   systemctl restart pi-avatar-startup.service >/dev/null
 }
 

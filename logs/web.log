@@ -2,8 +2,8 @@ Traceback (most recent call last):
   File "/home/flan/Barnabas/data2/projects/pi-avatarv2/web_preview.py", line 7, in <module>
     main()
     ~~~~^^
-  File "/home/flan/Barnabas/data2/projects/pi-avatarv2/pi_avatar/renderers/web.py", line 1164, in main
-    run_web_renderer(config, host=args.host or config.web.host, port=args.port or config.web.port)
+  File "/home/flan/Barnabas/data2/projects/pi-avatarv2/pi_avatar/renderers/web.p127.0.0.1 - "GET / HTTP/1.1" 200 -
+renderer(config, host=args.host or config.web.host, port=args.port or config.web.port)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/home/flan/Barnabas/data2/projects/pi-avatarv2/pi_avatar/renderers/web.py", line 1147, in run_web_renderer
     server = AvatarWebServer((host, port), config)
