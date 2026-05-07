@@ -89,9 +89,7 @@ Type=simple
 Environment=XDG_RUNTIME_DIR=/run/pi-avatar
 Environment=SDL_VIDEODRIVER=kmsdrm
 WorkingDirectory=${ROOT_DIR}
-ExecStartPre=-/usr/bin/timeout 2 /bin/sh -c '/usr/bin/setterm --cursor off --blank 0 --powerdown 0 </dev/tty1 >/dev/tty1'
 ExecStart=${PYTHON_BIN} ${ROOT_DIR}/renderer.py --config ${CONFIG_FILE}
-ExecStopPost=-/usr/bin/timeout 2 /bin/sh -c '/usr/bin/setterm --cursor on </dev/tty1 >/dev/tty1'
 Restart=on-failure
 RestartSec=2
 TimeoutStartSec=15

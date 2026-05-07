@@ -157,13 +157,13 @@ web:
         self.assertIn("ExecStart=/usr/bin/systemctl start --no-block pi-avatar-renderer.service", script)
         self.assertNotIn("ExecStart=/usr/bin/env bash ${ROOT_DIR}/scripts/start-avatar.sh --foreground", script)
 
-    def test_renderer_units_bound_setterm_helpers(self):
+    def test_renderer_units_do_not_block_in_start_pre(self):
         script = Path("scripts/start-avatar.sh").read_text()
         unit = Path("systemd/pi-avatar-renderer.service").read_text()
 
         for text in (script, unit):
-            self.assertIn("/usr/bin/timeout 2 /bin/sh -c", text)
-            self.assertIn("</dev/tty1 >/dev/tty1", text)
+            self.assertNotIn("ExecStartPre", text)
+            self.assertNotIn("setterm", text)
 
     def test_renderer_logs_startup_context_before_display_open(self):
         with tempfile.TemporaryDirectory() as tmpdir:
