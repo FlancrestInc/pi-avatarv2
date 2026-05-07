@@ -60,6 +60,12 @@ class DisplayConfig:
 
 
 @dataclass(frozen=True)
+class WebConfig:
+    host: str = "0.0.0.0"
+    port: int = 8080
+
+
+@dataclass(frozen=True)
 class Config:
     config_file: Path
     env_file: Path
@@ -68,6 +74,7 @@ class Config:
     parser: ParserConfig
     mode: dict
     display: DisplayConfig
+    web: WebConfig
 
     @property
     def state_file(self):
@@ -265,6 +272,18 @@ def _display_config(data):
     )
 
 
+def _web_config(data):
+    raw = data.get("web", {}) or {}
+    if not isinstance(raw, dict):
+        raise ConfigError("web must be a mapping")
+
+    host = str(raw.get("host", "0.0.0.0") or "0.0.0.0")
+    return WebConfig(
+        host=host,
+        port=_positive_int(raw.get("port", 8080), "web.port"),
+    )
+
+
 def _mode_config(data, avatar):
     raw = data.get("mode", {"type": "routine", "steps": [{"state": avatar.default_state, "duration_seconds": 10}]})
     if not isinstance(raw, dict):
@@ -345,4 +364,5 @@ def load_config(env=None, path=None):
         parser=_parser_config(data),
         mode=_mode_config(data, avatar),
         display=_display_config(data),
+        web=_web_config(data),
     )

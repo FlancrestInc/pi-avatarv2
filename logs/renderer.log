@@ -1,0 +1,3 @@
+pygame 2.6.1 (SDL 2.32.4, Python 3.13.5)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+pygame display unavailable (kmsdrm not available); falling back to /dev/fb0

@@ -18,6 +18,8 @@ mkdir -p "${INSTALL_DIR}" "${CONFIG_DIR}" "${STATE_DIR}"
 
 cp -a "${ROOT_DIR}/pi_avatar" "${INSTALL_DIR}/"
 cp -a "${ROOT_DIR}/assets" "${INSTALL_DIR}/"
+mkdir -p "${INSTALL_DIR}/scripts"
+cp "${ROOT_DIR}/scripts/start-avatar.sh" "${INSTALL_DIR}/scripts/"
 cp "${ROOT_DIR}/monitor.py" "${ROOT_DIR}/renderer.py" "${ROOT_DIR}/web_preview.py" "${ROOT_DIR}/process_assets.py" "${ROOT_DIR}/validate_config.py" "${ROOT_DIR}/make_test_assets.py" "${ROOT_DIR}/requirements.txt" "${INSTALL_DIR}/"
 
 if ! python3 -m venv "${VENV_DIR}"; then
@@ -53,6 +55,10 @@ avatar:
 source:
   type: none
 
+web:
+  host: 0.0.0.0
+  port: 8080
+
 mode:
   type: routine
   strategy: sequence
@@ -66,9 +72,10 @@ fi
 
 cp "${ROOT_DIR}/systemd/pi-avatar-monitor.service" /etc/systemd/system/
 cp "${ROOT_DIR}/systemd/pi-avatar-renderer.service" /etc/systemd/system/
+cp "${ROOT_DIR}/systemd/pi-avatar-web.service" /etc/systemd/system/
 
 systemctl daemon-reload
-systemctl enable pi-avatar-monitor.service pi-avatar-renderer.service
+systemctl enable pi-avatar-monitor.service pi-avatar-renderer.service pi-avatar-web.service
 
 echo "Installed Pi Avatar. Edit ${CONFIG_FILE}, then run:"
-echo "  sudo systemctl restart pi-avatar-monitor pi-avatar-renderer"
+echo "  sudo systemctl restart pi-avatar-monitor pi-avatar-renderer pi-avatar-web"

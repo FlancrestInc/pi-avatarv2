@@ -14,6 +14,8 @@ from pi_avatar.sources import SourceReader
 from pi_avatar.state import StateWriter
 import monitor
 import renderer
+from pi_avatar.renderers import web
+from pi_avatar import services
 
 
 def write_config(tmpdir, body):
@@ -31,6 +33,8 @@ class AvatarMonitorTests(unittest.TestCase):
         self.assertEqual(config.default_state, "idle")
         self.assertEqual(config.source.type, "none")
         self.assertEqual(config.mode["type"], "routine")
+        self.assertEqual(config.web.host, "0.0.0.0")
+        self.assertEqual(config.web.port, 8080)
 
     def test_load_config_rejects_unknown_value_rule_state(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -73,6 +77,77 @@ display:
         self.assertEqual(config.display.background_color, "#112233")
         self.assertFalse(config.display.show_detail)
         self.assertEqual(config.display.scale_mode, "cover")
+
+    def test_web_config_controls_bind_host_and_port(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+web:
+  host: 0.0.0.0
+  port: 9090
+""",
+            )
+            config = load_config(env={}, path=config_path)
+
+        self.assertEqual(config.web.host, "0.0.0.0")
+        self.assertEqual(config.web.port, 9090)
+
+    def test_web_renderer_main_uses_config_host_and_port(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(
+                tmpdir,
+                """
+web:
+  host: 0.0.0.0
+  port: 9090
+""",
+            )
+
+            with mock.patch("sys.argv", ["web_preview.py", "--config", str(config_path)]), mock.patch(
+                "pi_avatar.renderers.web.run_web_renderer"
+            ) as run_web_renderer:
+                web.main()
+
+        self.assertEqual(run_web_renderer.call_args.kwargs["host"], "0.0.0.0")
+        self.assertEqual(run_web_renderer.call_args.kwargs["port"], 9090)
+
+    def test_reconcile_pi_renderer_service_starts_when_enabled(self):
+        calls = []
+
+        class Config:
+            class display:
+                pi_enabled = True
+
+        services.reconcile_pi_renderer_service(None, Config(), runner=lambda command: calls.append(command))
+
+        self.assertEqual(calls, [["systemctl", "restart", "pi-avatar-renderer.service"]])
+
+    def test_reconcile_pi_renderer_service_stops_when_disabled(self):
+        calls = []
+
+        class Config:
+            class display:
+                pi_enabled = False
+
+        services.reconcile_pi_renderer_service(None, Config(), runner=lambda command: calls.append(command))
+
+        self.assertEqual(calls, [["systemctl", "stop", "pi-avatar-renderer.service"]])
+
+    def test_start_script_supports_quiet_service_install_and_web(self):
+        script = Path("scripts/start-avatar.sh").read_text()
+
+        self.assertIn("--install-service", script)
+        self.assertIn("pi-avatar-web.service", script)
+        self.assertIn(">/dev/null", script)
+
+    def test_start_script_runs_from_project_root_and_uses_pid_dir(self):
+        script = Path("scripts/start-avatar.sh").read_text()
+
+        self.assertIn('cd "${ROOT_DIR}"', script)
+        self.assertIn('PID_DIR="${PID_DIR:-${ROOT_DIR}/run}"', script)
+        self.assertIn('stop_existing', script)
+        self.assertIn('CONFIG_FILE="$(resolve_path "${CONFIG_FILE}")"', script)
 
     def test_parse_json_path_and_numeric_cast(self):
         value = parse_value('{"cpu": {"percent": 72.5}}', load_config(env={}, path=Path("/missing")).parser)

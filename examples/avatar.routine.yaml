@@ -35,6 +35,9 @@ display:
   framebuffer: /dev/fb0
   background_color: '#000000'
   scale_mode: contain
+web:
+  host: 0.0.0.0
+  port: 8080
 mode:
   type: routine
   strategy: sequence
