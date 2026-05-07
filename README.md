@@ -38,7 +38,19 @@ For real spritesheets, adapt `source-assets/manifest.example.json` and run `proc
 
 ## Pi Renderer Mode
 
-Run the monitor and Pi fullscreen renderer separately:
+Run the monitor, browser renderer, and Pi fullscreen renderer quietly with the startup script:
+
+```bash
+./scripts/start-avatar.sh --config examples/avatar.routine.yaml
+```
+
+Process output is written under `logs/` instead of cluttering the terminal. To install that startup script as a boot service:
+
+```bash
+sudo ./scripts/start-avatar.sh --install-service --config /etc/pi-avatar/avatar.yaml
+```
+
+You can still run the monitor and Pi fullscreen renderer separately:
 
 ```bash
 python monitor.py --config examples/avatar.routine.yaml
@@ -51,7 +63,7 @@ For systemd installation on a Pi:
 
 ```bash
 sudo ./scripts/install-pi.sh
-sudo systemctl restart pi-avatar-monitor pi-avatar-renderer
+sudo systemctl restart pi-avatar-monitor pi-avatar-renderer pi-avatar-web
 ```
 
 Edit `/etc/pi-avatar/avatar.yaml` for your monitor rules.
@@ -85,6 +97,7 @@ Start with the [Dashboard Guide](docs/dashboard.md) for a tour of the web interf
 
 - `avatar`: state file, asset directory, available states, default state, optional FPS per state.
 - `display`: Pi renderer enablement, size, fullscreen mode, framebuffer path, background color, detail text, and scale mode.
+- `web`: browser renderer bind host and port, for example `host: 0.0.0.0` and `port: 8080` for LAN access.
 - `source`: `none`, `file`, or `url`.
 - `parser`: `raw`, `json_path`, or `regex`, with `cast: string | number | bool`.
 - `mode`: `time`, `value`, or `routine`.

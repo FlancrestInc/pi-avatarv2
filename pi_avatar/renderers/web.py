@@ -17,6 +17,7 @@ from make_test_assets import STATES as DEFAULT_ASSET_STATES, generate_default_as
 from pi_avatar.assets import AssetManifestError, process_manifest
 from pi_avatar.config import ConfigError, load_config
 from pi_avatar.core import StateStore, list_frame_paths, load_animation_states
+from pi_avatar.services import reconcile_pi_renderer_service
 
 
 DISPLAY_HTML = """<!doctype html>
@@ -675,6 +676,7 @@ CONFIG_HTML = """<!doctype html>
           background_color: $("display.background_color").value || "#000000",
           scale_mode: $("display.scale_mode").value || "contain"
         },
+        web: rawConfig.web || {},
         mode: { type: $("mode.type").value }
       };
       if (config.mode.type === "routine") {
@@ -827,6 +829,7 @@ def _config_to_dict(config):
             "parser": asdict(config.parser),
             "mode": config.mode,
             "display": asdict(config.display),
+            "web": asdict(config.web),
         }
     )
 
@@ -967,9 +970,12 @@ class AvatarWebHandler(BaseHTTPRequestHandler):
                 load_config(os.environ, path=temp_path)
             finally:
                 temp_path.unlink(missing_ok=True)
+            old_config = self.config
             self.config.config_file.parent.mkdir(parents=True, exist_ok=True)
             self.config.config_file.write_text(raw)
-            self.server.replace_config(load_config(os.environ, path=self.config.config_file))
+            next_config = load_config(os.environ, path=self.config.config_file)
+            self.server.replace_config(next_config)
+            reconcile_pi_renderer_service(old_config, next_config)
             return self._send_json(self._config_payload())
         except (ConfigError, OSError, yaml.YAMLError, ValueError) as exc:
             return self._send_json({"error": str(exc)}, status=400)
@@ -1150,12 +1156,12 @@ def run_web_renderer(config, host="127.0.0.1", port=8080):
 def main():
     parser = argparse.ArgumentParser(description="Run the browser avatar preview")
     parser.add_argument("--config", help="Path to avatar.yaml")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host")
-    parser.add_argument("--port", default=8080, type=int, help="Bind port")
+    parser.add_argument("--host", help="Bind host; defaults to web.host from config")
+    parser.add_argument("--port", type=int, help="Bind port; defaults to web.port from config")
     args = parser.parse_args()
 
     config = load_config(os.environ, path=args.config)
-    run_web_renderer(config, host=args.host, port=args.port)
+    run_web_renderer(config, host=args.host or config.web.host, port=args.port or config.web.port)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,15 @@
+[Unit]
+Description=Pi Avatar web renderer
+After=network-online.target pi-avatar-monitor.service
+Wants=network-online.target pi-avatar-monitor.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/pi-avatar/avatar.env
+WorkingDirectory=/opt/pi-avatar
+ExecStart=/opt/pi-avatar/.venv/bin/python /opt/pi-avatar/web_preview.py --config /etc/pi-avatar/avatar.yaml
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

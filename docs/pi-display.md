@@ -62,10 +62,28 @@ For systemd installs:
 
 ```bash
 sudo ./scripts/install-pi.sh
-sudo systemctl restart pi-avatar-monitor pi-avatar-renderer
+sudo systemctl restart pi-avatar-monitor pi-avatar-renderer pi-avatar-web
 ```
 
-If you change the config from the dashboard, restart services that are already running if they need to pick up display or rule changes.
+If you change `display.pi_enabled` from the dashboard, the web service asks systemd to restart or stop `pi-avatar-renderer.service` so the physical display follows the toggle. Other display sizing changes still require restarting the Pi renderer if it is already running.
+
+For a lightweight local startup path, run:
+
+```bash
+./scripts/start-avatar.sh --config /etc/pi-avatar/avatar.yaml
+```
+
+The script starts the monitor, web renderer, and Pi renderer without printing their logs to the terminal. Add `--install-service` with `sudo` to install the launcher as `pi-avatar-startup.service`.
+
+You can also set the browser bind address in YAML:
+
+```yaml
+web:
+  host: 0.0.0.0
+  port: 8080
+```
+
+`0.0.0.0` binds all network interfaces for LAN access. If `curl http://127.0.0.1:8080/` works on the Pi but another computer cannot connect to `http://<pi-lan-ip>:8080/`, check that the process is listening on `0.0.0.0:8080` with `ss -ltnp` and then check the Pi firewall or network rules.
 
 ## Disabling Hardware Output
 
