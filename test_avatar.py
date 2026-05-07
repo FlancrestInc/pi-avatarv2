@@ -149,6 +149,25 @@ web:
         self.assertIn('stop_existing', script)
         self.assertIn('CONFIG_FILE="$(resolve_path "${CONFIG_FILE}")"', script)
 
+    def test_start_script_installed_service_uses_dedicated_pi_units(self):
+        script = Path("scripts/start-avatar.sh").read_text()
+
+        self.assertIn("pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service", script)
+        self.assertIn("ExecStart=/usr/bin/systemctl start pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service", script)
+        self.assertNotIn("ExecStart=/usr/bin/env bash ${ROOT_DIR}/scripts/start-avatar.sh --foreground", script)
+
+    def test_renderer_logs_startup_context_before_display_open(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(tmpdir, "")
+            config = load_config(env={}, path=config_path)
+
+            with mock.patch("builtins.print") as printer:
+                renderer.log_startup_context(config)
+
+        messages = [call.args[0] for call in printer.call_args_list]
+        self.assertTrue(any("renderer starting" in message for message in messages))
+        self.assertTrue(any("asset_dir=" in message for message in messages))
+
     def test_parse_json_path_and_numeric_cast(self):
         value = parse_value('{"cpu": {"percent": 72.5}}', load_config(env={}, path=Path("/missing")).parser)
         self.assertEqual(value, '{"cpu": {"percent": 72.5}}')

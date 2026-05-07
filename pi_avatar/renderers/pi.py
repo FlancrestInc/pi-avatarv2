@@ -208,6 +208,20 @@ def configure_sdl_environment(env):
         env.setdefault("SDL_VIDEODRIVER", "kmsdrm")
 
 
+def log_startup_context(config):
+    print(
+        f"renderer starting: config={config.config_file} asset_dir={config.asset_dir} "
+        f"state_file={config.state_file} pi_enabled={config.display.pi_enabled}",
+        flush=True,
+    )
+    print(
+        "display: "
+        f"{config.display.width}x{config.display.height} fullscreen={config.display.fullscreen} "
+        f"scale_mode={config.display.scale_mode} framebuffer={config.display.framebuffer}",
+        flush=True,
+    )
+
+
 def read_framebuffer_info(framebuffer_path):
     var = FbVarScreenInfo()
     fix = FbFixScreenInfo()
@@ -281,8 +295,14 @@ def load_framebuffer_animations(config, info):
 
 
 def run_framebuffer_renderer(config, framebuffer_path="/dev/fb0"):
+    print(f"starting framebuffer renderer: framebuffer={framebuffer_path}", flush=True)
     info = read_framebuffer_info(framebuffer_path)
     animations = load_framebuffer_animations(config, info)
+    print(
+        f"framebuffer ready: {info.width}x{info.height} depth={info.bits_per_pixel} "
+        f"animations={','.join(sorted(animations))}",
+        flush=True,
+    )
 
     current_state = config.default_state
     previous_state = None
@@ -320,12 +340,14 @@ def run_pygame_renderer(config):
 
     flags = pygame.FULLSCREEN if config.display.fullscreen else 0
     screen = pygame.display.set_mode((config.display.width, config.display.height), flags)
+    print(f"pygame display ready: driver={pygame.display.get_driver()}", flush=True)
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, 24)
 
     hide_mouse()
 
     animations = load_all_animations(config, pygame)
+    print(f"pygame animations loaded: {','.join(sorted(animations))}", flush=True)
 
     current_state = config.default_state
     previous_state = None
@@ -373,11 +395,18 @@ def main():
     args = parser.parse_args()
 
     config = load_config(os.environ, path=args.config)
+    log_startup_context(config)
     if not config.display.pi_enabled:
         print("Pi display is disabled in display.pi_enabled; exiting.", flush=True)
         return
 
     configure_sdl_environment(os.environ)
+    print(
+        f"sdl environment: SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER', '')} "
+        f"SDL_FBDEV={os.environ.get('SDL_FBDEV', '')} DISPLAY={os.environ.get('DISPLAY', '')} "
+        f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '')}",
+        flush=True,
+    )
 
     try:
         run_pygame_renderer(config)
