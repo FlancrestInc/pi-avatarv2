@@ -153,7 +153,8 @@ web:
         script = Path("scripts/start-avatar.sh").read_text()
 
         self.assertIn("pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service", script)
-        self.assertIn("ExecStart=/usr/bin/systemctl start pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service", script)
+        self.assertIn("ExecStart=/usr/bin/systemctl start pi-avatar-monitor.service pi-avatar-web.service", script)
+        self.assertIn("ExecStart=/usr/bin/systemctl start --no-block pi-avatar-renderer.service", script)
         self.assertNotIn("ExecStart=/usr/bin/env bash ${ROOT_DIR}/scripts/start-avatar.sh --foreground", script)
 
     def test_renderer_logs_startup_context_before_display_open(self):

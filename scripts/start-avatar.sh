@@ -89,11 +89,12 @@ Type=simple
 Environment=XDG_RUNTIME_DIR=/run/pi-avatar
 Environment=SDL_VIDEODRIVER=kmsdrm
 WorkingDirectory=${ROOT_DIR}
-ExecStartPre=/bin/sh -c '/usr/bin/setterm --cursor off --blank 0 --powerdown 0 > /dev/tty1'
+ExecStartPre=-/bin/sh -c '/usr/bin/setterm --cursor off --blank 0 --powerdown 0 > /dev/tty1'
 ExecStart=${PYTHON_BIN} ${ROOT_DIR}/renderer.py --config ${CONFIG_FILE}
-ExecStopPost=/bin/sh -c '/usr/bin/setterm --cursor on > /dev/tty1'
+ExecStopPost=-/bin/sh -c '/usr/bin/setterm --cursor on > /dev/tty1'
 Restart=on-failure
 RestartSec=2
+TimeoutStartSec=15
 RuntimeDirectory=pi-avatar
 RuntimeDirectoryMode=0700
 StandardInput=tty
@@ -112,7 +113,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/systemctl start pi-avatar-monitor.service pi-avatar-web.service pi-avatar-renderer.service
+ExecStart=/usr/bin/systemctl start pi-avatar-monitor.service pi-avatar-web.service
+ExecStart=/usr/bin/systemctl start --no-block pi-avatar-renderer.service
 ExecStop=/usr/bin/systemctl stop pi-avatar-renderer.service pi-avatar-web.service pi-avatar-monitor.service
 
 [Install]
